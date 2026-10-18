@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQL Query Review"
+  short_description: "Review SQL correctness and transactions"
+  default_prompt: "Use $sql-query-review to review SQL queries and their Go call sites."

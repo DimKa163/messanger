@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go Concurrency Safety"
+  short_description: "Review goroutines, shared state and races"
+  default_prompt: "Use $go-concurrency-safety to review concurrent Go behavior and database invariants."

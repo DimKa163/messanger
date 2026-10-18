@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff"
+  short_description: "Transfer task state, decisions and next steps"
+  default_prompt: "Use $handoff to prepare an accurate task handoff for the next session."

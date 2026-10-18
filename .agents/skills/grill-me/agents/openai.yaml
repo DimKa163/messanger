@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grill Me"
+  short_description: "Clarify requirements and resolve contradictions"
+  default_prompt: "Use $grill-me to clarify requirements before implementing complex business logic."

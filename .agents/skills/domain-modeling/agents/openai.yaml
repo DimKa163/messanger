@@ -1,0 +1,4 @@
+interface:
+  display_name: "Domain Modeling"
+  short_description: "Model entities, invariants and domain operations"
+  default_prompt: "Use $domain-modeling to define entities, domain operations, and consistency boundaries for the requested feature."

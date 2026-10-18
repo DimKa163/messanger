@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQL Migration Review"
+  short_description: "Review PostgreSQL migrations and rollback"
+  default_prompt: "Use $sql-migration-review to review schema changes and migration safety."

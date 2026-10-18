@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve Codebase Architecture"
+  short_description: "Find coupling and improve component boundaries"
+  default_prompt: "Use $improve-codebase-architecture to assess dependencies and improve a focused part of this codebase."

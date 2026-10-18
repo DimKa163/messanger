@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go Clean Architecture"
+  short_description: "Review Go boundaries and dependency direction"
+  default_prompt: "Use $go-clean-architecture to review package boundaries and business use cases."
