@@ -14,9 +14,12 @@ type Pinger interface {
 	Ping(context.Context) error
 }
 
-func NewRouter(db Pinger) http.Handler {
+func NewRouter(db Pinger, auth AuthService) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.Recoverer)
+	handler := authHandler{service: auth}
+	router.Post("/auth/register", handler.register)
+	router.Post("/auth/login", handler.login)
 	router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

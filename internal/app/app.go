@@ -12,8 +12,10 @@ import (
 
 	"github.com/DimKa163/messanger/database/migrations"
 	"github.com/DimKa163/messanger/internal/config"
+	"github.com/DimKa163/messanger/internal/security"
 	"github.com/DimKa163/messanger/internal/storage/postgres"
 	httptransport "github.com/DimKa163/messanger/internal/transport/http"
+	"github.com/DimKa163/messanger/internal/usecase"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,6 +27,10 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, error) {
+	tokens, err := security.NewJWT(cfg.JWTSecret, cfg.JWTTTL)
+	if err != nil {
+		return nil, err
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	pool, err := postgres.NewPool(connectCtx, cfg.DatabaseURL)
@@ -36,6 +42,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 	logger.Info("database migrations applied")
+	auth, err := usecase.NewAuth(ctx, postgres.NewUsers(pool), security.NewArgon2id(), tokens)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	return &App{
 		pool:            pool,
@@ -43,7 +54,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		shutdownTimeout: cfg.ShutdownTimeout,
 		server: &http.Server{
 			Addr:              cfg.HTTPAddr,
-			Handler:           httptransport.NewRouter(pool),
+			Handler:           httptransport.NewRouter(pool, auth),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       15 * time.Second,
 			WriteTimeout:      15 * time.Second,
