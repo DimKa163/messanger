@@ -10,6 +10,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DimKa163/messanger/internal/security"
+	httptransport "github.com/DimKa163/messanger/internal/transport/http"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 )
 
 func TestServeWaitsForActiveRequest(t *testing.T) {
@@ -87,6 +93,52 @@ func TestServeCancelsRequestWhenShutdownExpires(t *testing.T) {
 	}
 	awaitSignal(t, requestCanceled)
 	awaitResult(t, response)
+}
+
+func TestServeClosesWebSocketsOnShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tokens, err := security.NewJWT("test-secret-with-at-least-32-bytes", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := tokens.Issue(uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := httptransport.NewWebSocket()
+	t.Cleanup(func() {
+		shutdownCtx, stop := context.WithTimeout(context.Background(), time.Second)
+		defer stop()
+		if err := ws.Shutdown(shutdownCtx); err != nil {
+			t.Error(err)
+		}
+	})
+	a := testApp(httptransport.NewRouter(nil, nil, tokens, ws), time.Second)
+	a.websocket = ws
+	listener := testListener(t)
+	finished := make(chan error, 1)
+	go func() { finished <- a.serve(ctx, listener) }()
+	clientCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	conn, _, err := websocket.Dial(clientCtx, "ws://"+listener.Addr().String()+"/ws", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + token.Value}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	var event map[string]string
+	if err := wsjson.Read(clientCtx, conn, &event); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := awaitResult(t, finished); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := conn.Read(clientCtx); err == nil || clientCtx.Err() != nil {
+		t.Fatalf("WebSocket was not closed by server shutdown: %v", err)
+	}
 }
 
 func testApp(handler http.Handler, timeout time.Duration) *App {

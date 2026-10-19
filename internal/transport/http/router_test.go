@@ -18,7 +18,7 @@ func TestHealthDoesNotRequireDatabase(t *testing.T) {
 	router := NewRouter(pingFunc(func(context.Context) error {
 		t.Fatal("liveness must not access the database")
 		return nil
-	}), nil)
+	}), nil, nil, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if w.Code != http.StatusOK {
@@ -44,7 +44,7 @@ func TestReadiness(t *testing.T) {
 					t.Error("readiness query must have a bounded timeout")
 				}
 				return tc.err
-			}), nil)
+			}), nil, nil, nil)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 			if !called || w.Code != tc.status {

@@ -22,6 +22,7 @@ import (
 type App struct {
 	pool            *pgxpool.Pool
 	server          *http.Server
+	websocket       *httptransport.WebSocket
 	logger          *slog.Logger
 	shutdownTimeout time.Duration
 }
@@ -48,13 +49,15 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 
+	ws := httptransport.NewWebSocket()
 	return &App{
 		pool:            pool,
 		logger:          logger,
+		websocket:       ws,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		server: &http.Server{
 			Addr:              cfg.HTTPAddr,
-			Handler:           httptransport.NewRouter(pool, auth),
+			Handler:           httptransport.NewRouter(pool, auth, tokens, ws),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       15 * time.Second,
 			WriteTimeout:      15 * time.Second,
@@ -93,6 +96,11 @@ func (a *App) serve(ctx context.Context, listener net.Listener) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.shutdownTimeout)
 	defer cancel()
+	// HTTP Shutdown does not close or wait for upgraded WebSocket connections.
+	var websocketErr error
+	if a.websocket != nil {
+		websocketErr = a.websocket.Shutdown(shutdownCtx)
+	}
 	shutdownErr := a.server.Shutdown(shutdownCtx)
 	if shutdownErr != nil {
 		cancelRequests()
@@ -105,7 +113,7 @@ func (a *App) serve(ctx context.Context, listener net.Listener) error {
 	if errors.Is(runErr, http.ErrServerClosed) {
 		runErr = nil
 	}
-	return errors.Join(runErr, shutdownErr)
+	return errors.Join(runErr, websocketErr, shutdownErr)
 }
 
 func (a *App) Close() {

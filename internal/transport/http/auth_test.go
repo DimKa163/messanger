@@ -14,6 +14,8 @@ import (
 	"github.com/DimKa163/messanger/internal/domain"
 	"github.com/DimKa163/messanger/internal/security"
 	"github.com/DimKa163/messanger/internal/usecase"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 type memoryUsers struct {
@@ -52,7 +54,9 @@ func TestAuthHTTPRegistrationAndLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := NewRouter(nil, auth)
+	ws := NewWebSocket()
+	t.Cleanup(func() { shutdownWebSocket(t, ws) })
+	router := NewRouter(nil, auth, tokens, ws)
 	registerJSON := `{"name":"Alice","login":"alice","password":"correct password"}`
 	registered := authRequest(router, "/auth/register", registerJSON)
 	if registered.Code != http.StatusCreated {
@@ -87,6 +91,23 @@ func TestAuthHTTPRegistrationAndLogin(t *testing.T) {
 	if err != nil || id.String() != public.ID || response.TokenType != "Bearer" || !response.ExpiresAt.After(time.Now()) {
 		t.Fatalf("invalid access token response: subject=%v, error=%v", id, err)
 	}
+	server := httptest.NewServer(router)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/ws", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + response.AccessToken}},
+	})
+	if err != nil {
+		t.Fatalf("connect with login token: %v", err)
+	}
+	defer conn.CloseNow()
+	var event struct {
+		UserID string `json:"user_id"`
+	}
+	if err := wsjson.Read(ctx, conn, &event); err != nil || event.UserID != public.ID {
+		t.Fatalf("WebSocket user=%s; want %s; error=%v", event.UserID, public.ID, err)
+	}
 	wrong := authRequest(router, "/auth/login", `{"login":"alice","password":"wrong password"}`)
 	missing := authRequest(router, "/auth/login", `{"login":"missing","password":"wrong password"}`)
 	if wrong.Code != http.StatusUnauthorized || missing.Code != wrong.Code || missing.Body.String() != wrong.Body.String() {
@@ -120,7 +141,7 @@ func TestAuthHTTPErrorMapping(t *testing.T) {
 		{errors.New("private database password"), http.StatusInternalServerError},
 	} {
 		for _, path := range []string{"/auth/register", "/auth/login"} {
-			response := authRequest(NewRouter(nil, failingAuth{tc.err}), path, `{}`)
+			response := authRequest(NewRouter(nil, failingAuth{tc.err}, nil, nil), path, `{}`)
 			if response.Code != tc.status || strings.Contains(response.Body.String(), "private") {
 				t.Fatalf("%s: status=%d body=%s", path, response.Code, response.Body.String())
 			}
@@ -148,7 +169,7 @@ func TestAuthHTTPRejectsInvalidRequests(t *testing.T) {
 			{`{"password":"` + strings.Repeat("a", 17*1024) + `"}`, "application/json", http.StatusRequestEntityTooLarge},
 		} {
 			// A nil service makes accidental processing of rejected input fail the test.
-			router := NewRouter(nil, nil)
+			router := NewRouter(nil, nil, nil, nil)
 			r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(tc.body))
 			r.Header.Set("Content-Type", tc.contentType)
 			w := httptest.NewRecorder()
