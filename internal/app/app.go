@@ -49,7 +49,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return nil, err
 	}
 
-	ws := httptransport.NewWebSocket()
+	messages := usecase.NewMessages(postgres.NewMessages(pool))
+	ws := httptransport.NewWebSocket(messages)
+	// TODO: start the outbox publisher and Kafka consumers. Dispatch each Kafka
+	// message.send / message.delivered / message.readed event to messages.Consume(ctx, event, ws).
 	return &App{
 		pool:            pool,
 		logger:          logger,
