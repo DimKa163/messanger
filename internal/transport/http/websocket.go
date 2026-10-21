@@ -20,14 +20,19 @@ type WebSocket struct {
 	active   sync.WaitGroup
 	done     chan struct{}
 	clients  map[uuid.UUID]map[*webSocketClient]struct{}
+	messages MessageService
 }
 
-func NewWebSocket() *WebSocket {
+func NewWebSocket(services ...MessageService) *WebSocket {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &WebSocket{
+	h := &WebSocket{
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 		clients: make(map[uuid.UUID]map[*webSocketClient]struct{}),
 	}
+	if len(services) > 0 {
+		h.messages = services[0]
+	}
+	return h
 }
 
 func (h *WebSocket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +63,7 @@ func (h *WebSocket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(16 * 1024)
 	ctx, cancelConnection := context.WithCancel(h.ctx)
 	defer cancelConnection()
-	client := &webSocketClient{userID: userID, ctx: ctx, conn: conn, outbound: make(chan webSocketEvent, 64)}
+	client := &webSocketClient{userID: userID, ctx: ctx, conn: conn, outbound: make(chan socketWrite, 64)}
 	if !h.register(client) {
 		return
 	}
@@ -88,10 +93,26 @@ func (h *WebSocket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case event := <-client.outbound:
+		case item := <-client.outbound:
+			if item.ctx != nil && item.ctx.Err() != nil {
+				if item.done != nil {
+					item.done <- item.ctx.Err()
+				}
+				continue
+			}
 			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := wsjson.Write(writeCtx, conn, event)
+			var stop func() bool
+			if item.ctx != nil {
+				stop = context.AfterFunc(item.ctx, cancel)
+			}
+			err := wsjson.Write(writeCtx, conn, item.event)
+			if stop != nil {
+				stop()
+			}
 			cancel()
+			if item.done != nil {
+				item.done <- err
+			}
 			if err != nil {
 				return
 			}
